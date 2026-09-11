@@ -561,11 +561,20 @@ static size_t entropy(void* buf, size_t n)
 
 /*
  * ChaCha20 random number generator
+ *
+ * Each refill of the output buffer first replaces the key with the first
+ * 32 bytes of fresh keystream and hands out only the remaining bytes
+ * ("fast key erasure"). Output that has already been returned can
+ * therefore not be reconstructed from the generator's current state.
+ * Returned bytes are wiped from the buffer, and the generator reseeds
+ * from the OS entropy source every CHACHA20_RNG_RESEED_INTERVAL refills.
  */
+#define CHACHA20_RNG_RESEED_INTERVAL 16384 /* refills, i.e. 3.5 MiB of output */
+
 SQLITE_PRIVATE
 void chacha20_rng(void* out, size_t n)
 {
-  static uint8_t key[32], nonce[12], buffer[64] = { 0 };
+  static uint8_t key[32], nonce[12], buffer[256] = { 0 };
   static uint32_t counter = 0;
   static size_t available = 0;
 #if !defined(_WIN32) && !defined(__wasm__)
@@ -615,11 +624,19 @@ void chacha20_rng(void* out, size_t n)
         if (entropy(nonce, sizeof(nonce)) != sizeof(nonce))
           abort();
       }
-      chacha20_xor(buffer, sizeof(buffer), key, nonce, counter++);
-      available = sizeof(buffer);
+      /* Every refill uses a new key, so the block counter starts at 0 */
+      memset(buffer, 0, sizeof(buffer));
+      chacha20_xor(buffer, sizeof(buffer), key, nonce, 0);
+      /* Fast key erasure: the first 32 bytes become the next key */
+      memcpy(key, buffer, sizeof(key));
+      memset(buffer, 0, sizeof(key));
+      available = sizeof(buffer) - sizeof(key);
+      counter = (counter + 1) % CHACHA20_RNG_RESEED_INTERVAL;
     }
     m = (available < n) ? available : n;
     memcpy(out, buffer + (sizeof(buffer) - available), m);
+    /* Wipe the bytes that have been handed out */
+    memset(buffer + (sizeof(buffer) - available), 0, m);
     out = (uint8_t*)out + m;
     available -= m;
     n -= m;
