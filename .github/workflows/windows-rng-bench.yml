@@ -1,0 +1,50 @@
+name: Windows RNG benchmark
+
+on:
+  push:
+    branches:
+    - ci/windows-rng
+  workflow_dispatch:
+
+jobs:
+  msvc:
+    runs-on: windows-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Set up MSVC
+      uses: ilammy/msvc-dev-cmd@v1
+    - name: Build and run
+      shell: cmd
+      run: |
+        set FLAGS=/nologo /O2 /W3 /D_CRT_SECURE_NO_WARNINGS /DSQLITE_THREADSAFE=1 /DSQLITE_TEMP_STORE=2 /Isrc /Isrc\aegis\include /Isrc\argon2\include
+        cl %FLAGS% /DSQLITE3MC_USE_RAND_S=1 /DSQLITE3MC_USE_OS_RNG=0 ci-bench\winrngbench.c /Fe:benchA.exe bcrypt.lib advapi32.lib > buildA.log || (type buildA.log & exit /b 1)
+        cl %FLAGS% /DSQLITE3MC_USE_RAND_S=1 /DSQLITE3MC_USE_OS_RNG=1 ci-bench\winrngbench.c /Fe:benchB.exe bcrypt.lib advapi32.lib > buildB.log || (type buildB.log & exit /b 1)
+        cl %FLAGS% /DSQLITE3MC_USE_RAND_S=0 /DSQLITE3MC_USE_OS_RNG=1 ci-bench\winrngbench.c /Fe:benchC.exe bcrypt.lib advapi32.lib > buildC.log || (type buildC.log & exit /b 1)
+        wmic cpu get name
+        benchA.exe || exit /b 1
+        benchB.exe || exit /b 1
+        benchC.exe || exit /b 1
+
+  mingw:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    - name: Set up MSYS2
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: UCRT64
+        install: mingw-w64-ucrt-x86_64-gcc
+    - name: Build and run
+      run: |
+        FLAGS="-O2 -msse4.2 -maes -DSQLITE_THREADSAFE=1 -DSQLITE_TEMP_STORE=2 -Isrc -Isrc/aegis/include -Isrc/argon2/include"
+        gcc $FLAGS -DSQLITE3MC_USE_RAND_S=1 -DSQLITE3MC_USE_OS_RNG=0 ci-bench/winrngbench.c -o benchA.exe -lbcrypt -ladvapi32
+        gcc $FLAGS -DSQLITE3MC_USE_RAND_S=1 -DSQLITE3MC_USE_OS_RNG=1 ci-bench/winrngbench.c -o benchB.exe -lbcrypt -ladvapi32
+        gcc $FLAGS -DSQLITE3MC_USE_RAND_S=0 -DSQLITE3MC_USE_OS_RNG=1 ci-bench/winrngbench.c -o benchC.exe -lbcrypt -ladvapi32
+        ./benchA.exe
+        ./benchB.exe
+        ./benchC.exe
