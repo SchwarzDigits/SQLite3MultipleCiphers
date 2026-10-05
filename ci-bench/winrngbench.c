@@ -110,12 +110,13 @@ static double benchDatabase(const char* cipher, int* ok)
 int main(void)
 {
   static const char* ciphers[] = { "sqlcipher", "chacha20" };
+  static const char* others[] = { "aegis", "ascon128", "aes256cbc", "aes128cbc" };
   int c, allOk = 1;
   printf("build: SQLITE3MC_USE_RAND_S=%d, SQLITE3MC_USE_OS_RNG=%d\n", SQLITE3MC_USE_RAND_S, SQLITE3MC_USE_OS_RNG);
   printf("random sources (best of 5 x 100000 calls):\n");
   benchSource(SQLITE3MC_USE_RAND_S ? "entropy() via rand_s" : "entropy() via RtlGenRandom", fromEntropy);
   benchSource("BCryptGenRandom (system preferred RNG)", fromBcrypt);
-  benchSource(SQLITE3MC_USE_OS_RNG ? "chacha20_rng (direct from the OS)" : "chacha20_rng (ChaCha20 generator)", fromRng);
+  benchSource(SQLITE3MC_USE_OS_RNG ? "chacha20_rng (OS: BCryptGenRandom)" : "chacha20_rng (ChaCha20 generator)", fromRng);
   printf("database, one-row write transactions (WAL, synchronous=OFF), best of 3:\n");
   for (c = 0; c < 2; c++)
   {
@@ -129,6 +130,14 @@ int main(void)
       if (t < best) best = t;
     }
     printf("  %-10s %8.2f us per transaction  %s\n", ciphers[c], best, ok ? "(reopened ok)" : "(FAILED)");
+    allOk = allOk && ok;
+  }
+  printf("other ciphers, write and reopen:\n");
+  for (c = 0; c < 4; c++)
+  {
+    int ok = 0;
+    benchDatabase(others[c], &ok);
+    printf("  %-10s %s\n", others[c], ok ? "ok" : "FAILED");
     allOk = allOk && ok;
   }
   return allOk ? 0 : 1;
