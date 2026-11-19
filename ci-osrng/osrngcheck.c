@@ -13,7 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#if !SQLITE3MC_USE_OS_RNG
+#if !SQLITE3MC_USE_OS_RNG && !defined(OSRNG_ALLOW_OFF)
 #error "build with -DSQLITE3MC_USE_OS_RNG=1"
 #endif
 

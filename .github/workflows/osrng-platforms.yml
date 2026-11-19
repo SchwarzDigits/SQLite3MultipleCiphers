@@ -24,8 +24,8 @@ jobs:
       if: runner.os == 'Linux'
       run: |
         sudo apt-get install -y -qq strace > /dev/null
-        cc -O2 -Isrc -Isrc/aegis/include -Isrc/argon2/include -DSQLITE3MC_USE_OS_RNG=0 test/cryptotest.c -o cryptotest-off -lm -lpthread -ldl
-        for b in out/cryptotest ./cryptotest-off; do
+        cc -O2 -Isrc -Isrc/aegis/include -Isrc/argon2/include -DSQLITE3MC_USE_OS_RNG=0 -DOSRNG_ALLOW_OFF ci-osrng/osrngcheck.c -o osrngcheck-off -lm -lpthread -ldl
+        for b in out/osrngcheck ./osrngcheck-off; do
           (cd out && strace -f -c -e trace=getrandom ../$b > /dev/null 2> ../strace.txt) || true
           echo "$b: $(grep getrandom strace.txt)"
         done
@@ -48,8 +48,8 @@ jobs:
         CC=emcc LIBS="" NO_THREADS=1 bash ci-osrng/build.sh out .js -DSQLITE3MC_USE_OS_RNG=1 $EXTRA \
           -DSQLITE_OMIT_LOAD_EXTENSION=1 -sNODERAWFS=1 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=5MB -sEXIT_RUNTIME=1
         emcc -O2 -Isrc -Isrc/aegis/include -Isrc/argon2/include -DSQLITE3MC_USE_OS_RNG=0 $EXTRA \
-          -DSQLITE_OMIT_LOAD_EXTENSION=1 -sNODERAWFS=1 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=5MB -sEXIT_RUNTIME=1 \
-          test/cryptotest.c -o out/cryptotest-off.js
+          -DOSRNG_ALLOW_OFF -DSQLITE_OMIT_LOAD_EXTENSION=1 -sNODERAWFS=1 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=5MB -sEXIT_RUNTIME=1 \
+          ci-osrng/osrngcheck.c -o out/osrngcheck-off.js
     - name: Tests
       run: |
         node --version
@@ -58,8 +58,8 @@ jobs:
       if: matrix.variant == 'webcrypto'
       run: |
         cd out
-        echo "with option:    $(node -r ../ci-osrng/count-rng.cjs cryptotest.js | tail -1)"
-        echo "without option: $(node -r ../ci-osrng/count-rng.cjs cryptotest-off.js | tail -1)"
+        echo "with option:    $(node -r ../ci-osrng/count-rng.cjs osrngcheck.js | tail -1)"
+        echo "without option: $(node -r ../ci-osrng/count-rng.cjs osrngcheck-off.js | tail -1)"
 
   android:
     runs-on: ubuntu-latest
