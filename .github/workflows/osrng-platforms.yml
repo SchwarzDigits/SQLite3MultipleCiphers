@@ -96,3 +96,67 @@ jobs:
       with:
         name: android-arm64-api${{ matrix.api-level }}
         path: out-arm64
+
+  autotools-switch:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+    - name: configure --enable-os-rng
+      run: |
+        autoreconf
+        ./configure --enable-os-rng
+        grep -c "SQLITE3MC_USE_OS_RNG=1" Makefile
+    - name: Build and run with the switch
+      run: |
+        make V=1 cryptotest crashtest 2>&1 | grep -c -- "-DSQLITE3MC_USE_OS_RNG=1"
+        make
+        ./cryptotest
+        ./crashtest
+        printf "PRAGMA cipher='chacha20'; PRAGMA key='k'; CREATE TABLE t(a); INSERT INTO t VALUES(1); SELECT count(*) FROM t;\n" | ./sqlite3shell sw.db
+
+  windows-msvc:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v7
+    - uses: ilammy/msvc-dev-cmd@v1
+    - name: CMake with SQLITE3MC_USE_OS_RNG=ON
+      run: |
+        cmake -S . -B build -DSQLITE3MC_USE_OS_RNG=ON
+        cmake --build build --config Release
+    - name: Check program
+      shell: cmd
+      run: |
+        cl /nologo /O2 /Isrc /Isrc\aegis\include /Isrc\argon2\include /DSQLITE3MC_USE_OS_RNG=1 /DSQLITE_THREADSAFE=1 /DSQLITE_CORE=1 /DSQLITE_TEMP_STORE=2 ci-osrng\osrngcheck.c /Fe:osrngcheck.exe
+        osrngcheck.exe
+
+  windows-mingw:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+    - uses: actions/checkout@v7
+    - uses: msys2/setup-msys2@v2
+      with:
+        msystem: MINGW64
+        install: mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake make autoconf automake libtool
+    - name: CMake with SQLITE3MC_USE_OS_RNG=ON (links bcrypt)
+      run: |
+        cmake -S . -B build -G "MSYS Makefiles" -DSQLITE3MC_USE_OS_RNG=ON
+        cmake --build build -j4
+    - name: "Control, define without the CMake option (bcrypt missing, link should fail)"
+      continue-on-error: true
+      run: |
+        cmake -S . -B build-ctl -G "MSYS Makefiles" -DCMAKE_C_FLAGS=-DSQLITE3MC_USE_OS_RNG=1
+        cmake --build build-ctl -j4
+    - name: configure --enable-os-rng
+      run: |
+        autoreconf -fi
+        ./configure --enable-os-rng
+        make -j4
+        make cryptotest
+        ./cryptotest
+    - name: Check program
+      run: |
+        gcc -O2 -Isrc -Isrc/aegis/include -Isrc/argon2/include -DSQLITE3MC_USE_OS_RNG=1 -DSQLITE_THREADSAFE=1 -DSQLITE_CORE=1 -DSQLITE_TEMP_STORE=2 ci-osrng/osrngcheck.c -o osrngcheck.exe -lbcrypt
+        ./osrngcheck.exe

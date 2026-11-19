@@ -8,6 +8,7 @@ on:
     - hwaccel
     - register-dynamic-cipher
     - temp-crypt
+    - ci/os-rng-platforms
   pull_request:
     branches:
     - main
