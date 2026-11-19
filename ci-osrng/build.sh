@@ -1,0 +1,26 @@
+#!/bin/bash
+# Build the test programs with SQLITE3MC_USE_OS_RNG (test branch only).
+# usage: CC="<compiler>" LIBS="<libs>" [NO_THREADS=1] build.sh <outdir> <suffix> [extra cflags...]
+# Run from the repository root. The flags are those of sqlite3shell_CFLAGS in Makefile.am, without zlib.
+set -e
+OUT=$1; SUF=$2; shift 2
+mkdir -p "$OUT"
+FLAGS=(-Isrc -Isrc/aegis/include -Isrc/argon2/include -std=c99 -D_GNU_SOURCE
+  -DSQLITE_THREADSAFE=1 -DSQLITE_DQS=0 -DSQLITE_MAX_ATTACHED=10 -DSQLITE_SOUNDEX=1
+  -DSQLITE_ENABLE_COLUMN_METADATA=1 -DSQLITE_SECURE_DELETE=1 -DSQLITE_ENABLE_DESERIALIZE=1
+  -DSQLITE_ENABLE_FTS3=1 -DSQLITE_ENABLE_FTS3_PARENTHESIS=1 -DSQLITE_ENABLE_FTS4=1
+  -DSQLITE_ENABLE_FTS5=1 -DSQLITE_ENABLE_JSON1=1 -DSQLITE_ENABLE_RTREE=1 -DSQLITE_ENABLE_GEOPOLY=1
+  -DSQLITE_ENABLE_PREUPDATE_HOOK=1 -DSQLITE_ENABLE_SESSION=1 -DSQLITE_CORE=1
+  -DSQLITE_ENABLE_EXTFUNC=1 -DSQLITE_ENABLE_MATH_FUNCTIONS=1 -DSQLITE_ENABLE_CSV=1
+  -DSQLITE_ENABLE_CARRAY=1 -DSQLITE_ENABLE_PERCENTILE=1 -DSQLITE_ENABLE_UUID=1
+  -DSQLITE_TEMP_STORE=2 -DSQLITE_USE_URI=1 -DSQLITE_USER_AUTHENTICATION=0
+  -DSQLITE_ENABLE_DBPAGE_VTAB=1 -DSQLITE_ENABLE_DBSTAT_VTAB=1 -DSQLITE_ENABLE_STMTVTAB=1
+  -DSQLITE_ENABLE_UNKNOWN_SQL_FUNCTION=1 -DSQLITE_DEFAULT_FOREIGN_KEYS=1
+  -DSQLITE_LIKE_DOESNT_MATCH_BLOBS=1 -DSQLITE3MC_ENABLE_VLE=1)
+PROGS="ci-osrng/osrngcheck.c test/cryptotest.c test/tempfiletest.c test/oomtest.c test/rekeytest.c test/crashtest.c test/vfsstacktest.c"
+[ -n "$NO_THREADS" ] || PROGS="$PROGS test/threadtest.c"
+for p in $PROGS; do
+  n=$(basename "$p" .c)
+  echo "build $n$SUF"
+  $CC -O2 "${FLAGS[@]}" "$@" "$p" -o "$OUT/$n$SUF" $LIBS
+done

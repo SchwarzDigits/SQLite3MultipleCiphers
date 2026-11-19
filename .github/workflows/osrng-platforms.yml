@@ -1,0 +1,98 @@
+name: OS RNG on all platforms
+# Test branch only: runs the CI tests with SQLITE3MC_USE_OS_RNG=1 on Linux, macOS,
+# WASM (Emscripten + Node) and Android (emulator).
+on:
+  push:
+    branches:
+    - ci/os-rng-platforms
+  workflow_dispatch:
+
+jobs:
+  host:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v7
+    - name: Build
+      run: CC=cc LIBS="-lm -lpthread -ldl" bash ci-osrng/build.sh out "" -DSQLITE3MC_USE_OS_RNG=1
+    - name: Tests
+      run: cd out && sh ../ci-osrng/run.sh . ""
+    - name: Count getrandom calls (with and without the option)
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get install -y -qq strace > /dev/null
+        cc -O2 -Isrc -Isrc/aegis/include -Isrc/argon2/include -DSQLITE3MC_USE_OS_RNG=0 test/cryptotest.c -o cryptotest-off -lm -lpthread -ldl
+        for b in out/cryptotest ./cryptotest-off; do
+          (cd out && strace -f -c -e trace=getrandom ../$b > /dev/null 2> ../strace.txt) || true
+          echo "$b: $(grep getrandom strace.txt)"
+        done
+
+  wasm:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [webcrypto, getentropy]
+    steps:
+    - uses: actions/checkout@v7
+    - uses: mymindstorm/setup-emsdk@v14
+      with:
+        version: 6.0.9
+    - name: Build
+      run: |
+        EXTRA=""
+        [ "${{ matrix.variant }}" = getentropy ] && EXTRA="-DSQLITE3MC_WASM_USE_GETENTROPY"
+        CC=emcc LIBS="" NO_THREADS=1 bash ci-osrng/build.sh out .js -DSQLITE3MC_USE_OS_RNG=1 $EXTRA \
+          -DSQLITE_OMIT_LOAD_EXTENSION=1 -sNODERAWFS=1 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=5MB -sEXIT_RUNTIME=1
+        emcc -O2 -Isrc -Isrc/aegis/include -Isrc/argon2/include -DSQLITE3MC_USE_OS_RNG=0 $EXTRA \
+          -DSQLITE_OMIT_LOAD_EXTENSION=1 -sNODERAWFS=1 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=5MB -sEXIT_RUNTIME=1 \
+          test/cryptotest.c -o out/cryptotest-off.js
+    - name: Tests
+      run: |
+        node --version
+        cd out && NO_THREADS=1 sh ../ci-osrng/run.sh . .js node
+    - name: Count getRandomValues calls (with and without the option)
+      if: matrix.variant == 'webcrypto'
+      run: |
+        cd out
+        echo "with option:    $(node -r ../ci-osrng/count-rng.cjs cryptotest.js | tail -1)"
+        echo "without option: $(node -r ../ci-osrng/count-rng.cjs cryptotest-off.js | tail -1)"
+
+  android:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [24, 34]
+    steps:
+    - uses: actions/checkout@v7
+    - name: Set up Android NDK
+      id: setup-ndk
+      uses: nttld/setup-ndk@v1
+      with:
+        ndk-version: r28
+    - name: Build (x86_64 for the emulator, arm64-v8a as artifact)
+      run: |
+        T=${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin
+        CC="$T/x86_64-linux-android${{ matrix.api-level }}-clang" LIBS="-lm -ldl" bash ci-osrng/build.sh out-x86_64 "" -DSQLITE3MC_USE_OS_RNG=1
+        CC="$T/aarch64-linux-android${{ matrix.api-level }}-clang" LIBS="-lm -ldl" bash ci-osrng/build.sh out-arm64 "" -DSQLITE3MC_USE_OS_RNG=1
+    - name: Enable KVM
+      run: |
+        echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+        sudo udevadm control --reload-rules
+        sudo udevadm trigger --name-match=kvm
+    - name: Tests in the emulator
+      uses: reactivecircus/android-emulator-runner@v2
+      with:
+        api-level: ${{ matrix.api-level }}
+        arch: x86_64
+        target: default
+        disable-animations: true
+        script: bash ci-osrng/android-run.sh out-x86_64
+    - uses: actions/upload-artifact@v4
+      with:
+        name: android-arm64-api${{ matrix.api-level }}
+        path: out-arm64
