@@ -154,8 +154,8 @@ jobs:
         autoreconf -fi
         ./configure --enable-os-rng
         make -j4
-        make cryptotest
-        ./cryptotest
+        make cryptotest.exe
+        ./cryptotest.exe
     - name: Check program
       run: |
         gcc -O2 -Isrc -Isrc/aegis/include -Isrc/argon2/include -DSQLITE3MC_USE_OS_RNG=1 -DSQLITE_THREADSAFE=1 -DSQLITE_CORE=1 -DSQLITE_TEMP_STORE=2 ci-osrng/osrngcheck.c -o osrngcheck.exe -lbcrypt
