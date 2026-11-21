@@ -8,6 +8,7 @@ on:
     - hwaccel
     - register-dynamic-cipher
     - temp-crypt
+    - ci/shortread-autovacuum
   pull_request:
     branches:
     - main
